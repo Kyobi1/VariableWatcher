@@ -27,7 +27,7 @@
 
 namespace VariableWatcher
 {
-	void DefaultLogFunction(const std::string& sLog)
+	static void DefaultLogFunction(const std::string& sLog)
 	{
 		std::cout << sLog << std::endl;
 	}
@@ -35,7 +35,7 @@ namespace VariableWatcher
 #else
 namespace VariableWatcher
 {
-	void DefaultLogFunction(const std::string& sLog)
+	static void DefaultLogFunction(const std::string& sLog)
 	{
 		printf("%s\n", sLog.c_str());
 	}
