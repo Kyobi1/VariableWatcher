@@ -21,6 +21,7 @@
 #include <string>
 
 #define USE_COUT_FOR_DEFAULT_LOG
+#define PRINT_CALLSTACK
 
 #ifdef USE_COUT_FOR_DEFAULT_LOG
 #include <iostream>
@@ -40,6 +41,12 @@ namespace VariableWatcher
 		printf("%s\n", sLog.c_str());
 	}
 }
+#endif
+
+#ifdef PRINT_CALLSTACK
+#include <vector>
+#include <DbgHelp.h>
+#pragma comment(lib, "DbgHelp.lib")
 #endif
 
 namespace VariableWatcher
@@ -69,6 +76,10 @@ namespace VariableWatcher
 			m_uSystemPageSize = oSystemInfo.dwPageSize;
 
 			AddVectoredExceptionHandler(1, ExceptionHandler);
+
+#ifdef PRINT_CALLSTACK
+			SymSetOptions(SYMOPT_DEFERRED_LOADS);
+#endif
 		}
 		WatchersManager(const WatchersManager&) = delete;
 		WatchersManager& operator=(const WatchersManager&) = delete;
@@ -231,11 +242,131 @@ namespace VariableWatcher
 				DefaultLogFunction(sLog);
 		}
 
+#ifdef PRINT_CALLSTACK
+		std::string GetCallstack(const uint8_t uNbStackToRemove = s_uNbStackForLogging)
+		{
+			std::string sCallstack;
+			HANDLE pProcess = InitCurrentProcess();
+
+			if(pProcess == nullptr)
+				return sCallstack;
+
+			CONTEXT oContext{};
+			RtlCaptureContext(&oContext);
+
+			STACKFRAME64 oFrame{};
+			oFrame.AddrPC.Offset = oContext.Rip;
+			oFrame.AddrPC.Mode = AddrModeFlat;
+			oFrame.AddrFrame.Offset = oContext.Rsp;
+			oFrame.AddrFrame.Mode = AddrModeFlat;
+			oFrame.AddrStack.Offset = oContext.Rsp;
+			oFrame.AddrStack.Mode = AddrModeFlat;
+
+			HANDLE pCurrentThread = GetCurrentThread();
+
+			std::vector<DWORD64> aAddresses;
+
+			while(StackWalk64(IMAGE_FILE_MACHINE_AMD64, pProcess, pCurrentThread, &oFrame, &oContext, nullptr, SymFunctionTableAccess64, SymGetModuleBase64, nullptr))
+			{
+				if(oFrame.AddrPC.Offset == 0U)
+					break;
+
+				aAddresses.push_back(oFrame.AddrPC.Offset);
+			}
+
+			for(uint32_t i = uNbStackToRemove; i < aAddresses.size(); ++i)
+			{
+				char pBuffer[sizeof(SYMBOL_INFO) + MAX_SYM_NAME * sizeof(TCHAR)]{};
+				PSYMBOL_INFO pSymbol = reinterpret_cast<PSYMBOL_INFO>(pBuffer);
+
+				pSymbol->SizeOfStruct = sizeof(SYMBOL_INFO);
+				pSymbol->MaxNameLen = MAX_SYM_NAME;
+
+				DWORD64 uDisplacement64 = 0U;
+
+				bool bWriteSymbol = SymFromAddr(pProcess, aAddresses[i], &uDisplacement64, pSymbol);
+
+				DWORD uDisplacement = 0U;
+
+				IMAGEHLP_LINE64 oLine{};
+				oLine.SizeOfStruct = sizeof(IMAGEHLP_LINE64);
+
+				bool bWriteLine = SymGetLineFromAddr64(pProcess, aAddresses[i], &uDisplacement, &oLine);
+
+				if(bWriteLine)
+					sCallstack += std::string(oLine.FileName) + ':';
+				if(bWriteSymbol)
+					sCallstack += std::string(pSymbol->Name);
+				if(bWriteLine)
+					sCallstack += ' ' + std::to_string(oLine.LineNumber);
+
+				sCallstack += '\n';
+			}
+
+			return sCallstack;
+		}
+		
+#endif
+
 		void SetCustomLogFunction(LogFunction pFunc) { m_pLogFunction = pFunc; }
 
 		static constexpr uint32_t s_uNbWatchers = 8U;
 
 	private:
+
+#ifdef PRINT_CALLSTACK
+		HANDLE InitCurrentProcess()
+		{
+			DWORD uProcessID = GetCurrentProcessId();
+			size_t uFoundIndex = m_aProcess.size();
+			bool bProcessStoredIsInvalidated = false;
+			for(size_t i = 0; i < m_aProcess.size(); ++i)
+			{
+				if(uProcessID == m_aProcess[i].first)
+				{
+					// Checking if the handle is still valid because an other process may have take his ID if it's terminated
+					if(WaitForSingleObject(m_aProcess[i].second, 0) == WAIT_OBJECT_0)
+					{
+						bProcessStoredIsInvalidated = true;
+					}
+					uFoundIndex = i;
+					break;
+				}
+			}
+
+			if(bProcessStoredIsInvalidated)
+			{
+				m_aProcess.erase(m_aProcess.begin() + uFoundIndex);
+				uFoundIndex = m_aProcess.size();
+			}
+
+			HANDLE pProcess = nullptr;
+			if(uFoundIndex < m_aProcess.size())
+			{
+				pProcess = m_aProcess[uFoundIndex].second;
+			}
+			else
+			{
+				HANDLE pCurrentProcess = GetCurrentProcess();
+
+				if(!DuplicateHandle(pCurrentProcess, pCurrentProcess, pCurrentProcess, &pProcess, 0, FALSE, DUPLICATE_SAME_ACCESS))
+				{
+					Log("Unable to duplicate handle of current process");
+					return nullptr;
+				}
+
+				if(!SymInitialize(pProcess, nullptr, TRUE))
+				{
+					Log("Unable to initialize symbols of current process");
+					return nullptr;
+				}
+
+				m_aProcess.emplace_back(uProcessID, pProcess);
+			}
+
+			return pProcess;
+		}
+#endif
 
 		void LogWatcherInfo(const uint32_t uWatcherIndex)
 		{
@@ -245,6 +376,12 @@ namespace VariableWatcher
 
 		const WatcherInterface* m_pWatcherSlots[s_uNbWatchers];
 		void* m_pWatcherSlotsRawMemory[s_uNbWatchers];
+
+#ifdef PRINT_CALLSTACK
+		std::vector<std::pair<DWORD, HANDLE>> m_aProcess;
+
+		static constexpr uint8_t s_uNbStackForLogging = 6U;
+#endif
 
 		LogFunction m_pLogFunction = DefaultLogFunction;
 
@@ -262,7 +399,12 @@ namespace VariableWatcher
 			m_pVal = WatchersManager::GetInstance().AddWatchedVariable<T>(this);
 
 			if(m_pVal != nullptr)
+			{
 				WatchersManager::GetInstance().Log("Create watched var " + m_sName + " with value " + to_string(*m_pVal));
+#ifdef PRINT_CALLSTACK
+				WatchersManager::GetInstance().Log("Callstack : \n" + WatchersManager::GetInstance().GetCallstack(1U));
+#endif
+			}
 			else
 				throw std::bad_alloc();
 		}
@@ -275,6 +417,9 @@ namespace VariableWatcher
 			{
 				*m_pVal = oCreateVal;
 				WatchersManager::GetInstance().Log("Create watched var " + m_sName + " with value " + to_string(*m_pVal));
+#ifdef PRINT_CALLSTACK
+				WatchersManager::GetInstance().Log("Callstack : \n" + WatchersManager::GetInstance().GetCallstack(1U));
+#endif
 			}
 			else
 				throw std::bad_alloc();
@@ -282,6 +427,9 @@ namespace VariableWatcher
 		~Watcher()
 		{
 			WatchersManager::GetInstance().Log("Remove watched var " + m_sName);
+#ifdef PRINT_CALLSTACK
+			WatchersManager::GetInstance().Log("Callstack : \n" + WatchersManager::GetInstance().GetCallstack(1U));
+#endif
 
 			WatchersManager::GetInstance().RemoveWatchedVariable(this);
 		}
@@ -313,6 +461,9 @@ namespace VariableWatcher
 		{
 			using std::to_string;
 			WatchersManager::GetInstance().Log("Var " + m_sName + " changed : " + to_string(*m_pVal));
+#ifdef PRINT_CALLSTACK
+			WatchersManager::GetInstance().Log("Callstack : \n" + WatchersManager::GetInstance().GetCallstack());
+#endif
 		}
 
 		T* m_pVal;
