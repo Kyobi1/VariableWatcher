@@ -487,7 +487,13 @@ namespace VariableWatcher
 #endif
 			}
 			else
+			{
+#ifdef __cpp_exceptions
 				throw std::bad_alloc();
+#else
+				WatchersManager::GetInstance().Log("Can not create watcher " + m_sName);
+#endif
+			}
 		}
 		Watcher(const std::string& sName, const T& oCreateVal) : WatcherInterface(sName)
 		{
@@ -506,7 +512,11 @@ namespace VariableWatcher
 #endif
 			}
 			else
+#ifdef __cpp_exceptions
 				throw std::bad_alloc();
+#else
+				WatchersManager::GetInstance().Log("Can not create watcher " + m_sName);
+#endif
 		}
 		~Watcher()
 		{
