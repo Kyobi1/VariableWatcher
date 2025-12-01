@@ -29,6 +29,23 @@ to this :
 <code>VariableWatcher::Watcher< int > iMyVar("iMyVar", 5);</code>
 <br />
 <br />
+By default, you will have the following string output :
+<pre>
+Create watched var iMyVar with value 5
+</pre>
+If you have enabled the PRINT_CALLSTACK option, the string corresponding to the callstack will be added (this is a possible example) :
+<pre>
+Callstack :
+D:\Visual Studio\Tests\Tests\VariableWatcher\VariableWatcher.hpp:VariableWatcher::Watcher<int>::Watcher<int> 405
+D:\Visual Studio\Tests\Tests\main.cpp:Test 40
+D:\Visual Studio\Tests\Tests\main.cpp:main 52
+D:\a\_work\1\s\src\vctools\crt\vcstartup\src\startup\exe_common.inl:invoke_main 79
+D:\a\_work\1\s\src\vctools\crt\vcstartup\src\startup\exe_common.inl:__scrt_common_main_seh 288
+D:\a\_work\1\s\src\vctools\crt\vcstartup\src\startup\exe_common.inl:__scrt_common_main 331
+D:\a\_work\1\s\src\vctools\crt\vcstartup\src\startup\exe_main.cpp:mainCRTStartup 17
+BaseThreadInitThunk
+RtlUserThreadStart
+</pre>
 For primitive types, you can then use it the same way as before.
 <br />
 <br />
@@ -53,7 +70,9 @@ void MyCustomLogFunction(const std::string& sLog)
 VariableWatcher::WatchersManager::GetInstance().SetCustomLogFunction(MyCustomLogFunction);
 </code>
 </pre>
-Please note that your function must have the same signature as the one given in example (returns void and take a const std::string& in parameter)
+Please note that your function must have the same signature as the one given in example (returns void and take a const std::string& in parameter).
+<br />
+If you don't want the callstack of the changes in your logs, you can remove the PRINT_CALLSTACK symbol.
 
 <h2>How does it work</h2>
 This system allocate a whole memory page for your variable and adds a page guard protection on it. When anyone wants to access this memory area, it is notified by a custom handler which allows the system to log any new value stored in the variable.
