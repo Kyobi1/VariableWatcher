@@ -207,6 +207,44 @@ namespace VariableWatcher
 				return nullptr;
 			}
 
+			void* pWatcherRawMemory = CreateWatcher(pDebugVar);
+			if(pWatcherRawMemory != nullptr)
+			{
+				return new ( pWatcherRawMemory ) T;
+			}
+			else
+			{
+				Log("Alloc of " + pDebugVar->m_sName + " failed");
+				return nullptr;
+			}
+		}
+
+		template<typename T>
+		T* AddWatchedVariable(const WatcherInterface* pDebugVar, const T& oCreateValue)
+		{
+			if(sizeof(T) > m_uSystemPageSize)
+			{
+				Log(pDebugVar->m_sName + " is too big for system page sizes which is not handled right now");
+				return nullptr;
+			}
+
+			void* pWatcherRawMemory = CreateWatcher(pDebugVar, false);
+			if(pWatcherRawMemory != nullptr)
+			{
+				T* pPtr = new ( pWatcherRawMemory ) T(oCreateValue);
+				DWORD uOldProtectMode;
+				VirtualProtect(pWatcherRawMemory, m_uSystemPageSize, PAGE_READWRITE | PAGE_GUARD, &uOldProtectMode);
+				return pPtr;
+			}
+			else
+			{
+				Log("Alloc of " + pDebugVar->m_sName + " failed");
+				return nullptr;
+			}
+		}
+
+		void* CreateWatcher(const WatcherInterface* pDebugVar, const bool bPageGuard = true)
+		{
 			uint32_t uFoundIndex = s_uNbWatchers;
 			for(uint32_t i = 0; i < s_uNbWatchers; ++i)
 			{
@@ -223,17 +261,12 @@ namespace VariableWatcher
 				return nullptr;
 			}
 
-			m_pWatcherSlotsRawMemory[uFoundIndex] = VirtualAlloc(nullptr, m_uSystemPageSize, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE | PAGE_GUARD);
+			m_pWatcherSlotsRawMemory[uFoundIndex] = VirtualAlloc(nullptr, m_uSystemPageSize, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE | ( bPageGuard ? PAGE_GUARD : 0 ));
+			
 			if(m_pWatcherSlotsRawMemory[uFoundIndex] != nullptr)
-			{
 				m_pWatcherSlots[uFoundIndex] = pDebugVar;
-				return new ( m_pWatcherSlotsRawMemory[uFoundIndex] ) T;
-			}
-			else
-			{
-				Log("Alloc of " + pDebugVar->m_sName + " failed");
-				return nullptr;
-			}
+
+			return m_pWatcherSlotsRawMemory[uFoundIndex];
 		}
 
 		void RemoveWatchedVariable(const WatcherInterface* pDebugVar)
@@ -463,11 +496,10 @@ namespace VariableWatcher
 #endif
 
 			using std::to_string;
-			m_pVal = WatchersManager::GetInstance().AddWatchedVariable<T>(this);
+			m_pVal = WatchersManager::GetInstance().AddWatchedVariable<T>(this, oCreateVal);
 
 			if(m_pVal != nullptr)
 			{
-				*m_pVal = oCreateVal;
 				WatchersManager::GetInstance().Log("Create watched var " + m_sName + " with value " + to_string(*m_pVal));
 #ifdef PRINT_CALLSTACK
 				WatchersManager::GetInstance().Log("Callstack : \n" + WatchersManager::GetInstance().GetCallstack(1U));
