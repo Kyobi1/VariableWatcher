@@ -22,6 +22,7 @@
 
 #define USE_COUT_FOR_DEFAULT_LOG
 #define PRINT_CALLSTACK
+#define ENABLE_THREAD_SAFETY
 
 #ifdef USE_COUT_FOR_DEFAULT_LOG
 #include <iostream>
@@ -47,6 +48,10 @@ namespace VariableWatcher
 #include <vector>
 #include <DbgHelp.h>
 #pragma comment(lib, "DbgHelp.lib")
+#endif
+
+#ifdef ENABLE_THREAD_SAFETY
+#include <mutex>
 #endif
 
 namespace VariableWatcher
@@ -121,6 +126,10 @@ namespace VariableWatcher
 
 			if(uExceptionCode == EXCEPTION_GUARD_PAGE)
 			{
+#ifdef ENABLE_THREAD_SAFETY
+				oWatchersManager.Lock();
+#endif
+
 				const ULONG_PTR uReadOrWrite = pExceptionInfo->ExceptionRecord->ExceptionInformation[0];
 				const ULONG_PTR uPageFaultAddress = pExceptionInfo->ExceptionRecord->ExceptionInformation[1];
 
@@ -157,6 +166,11 @@ namespace VariableWatcher
 
 					return EXCEPTION_CONTINUE_EXECUTION;
 				}
+
+#ifdef ENABLE_THREAD_SAFETY
+				oWatchersManager.Unlock();
+#endif
+
 				return EXCEPTION_CONTINUE_SEARCH;
 			}
 			else if(uExceptionCode == EXCEPTION_SINGLE_STEP)
@@ -173,6 +187,10 @@ namespace VariableWatcher
 
 				oWatchersManager.m_uLastUsedSlot = s_uNbWatchers;
 				oWatchersManager.m_bIsLastAccessWrite = false;
+
+#ifdef ENABLE_THREAD_SAFETY
+				oWatchersManager.Unlock();
+#endif
 
 				return EXCEPTION_CONTINUE_EXECUTION;
 			}
@@ -374,6 +392,32 @@ namespace VariableWatcher
 			m_pWatcherSlots[uWatcherIndex]->Log();
 		}
 
+#ifdef ENABLE_THREAD_SAFETY
+		public:
+		struct LockGuard
+		{
+			LockGuard()
+			{
+				WatchersManager::GetInstance().Lock();
+			}
+			~LockGuard()
+			{
+				WatchersManager::GetInstance().Unlock();
+			}
+		};
+
+		void Lock()
+		{
+			m_oMutex.lock();
+		}
+		void Unlock()
+		{
+			m_oMutex.unlock();
+		}
+		private:
+		std::recursive_mutex m_oMutex;
+#endif
+
 		const WatcherInterface* m_pWatcherSlots[s_uNbWatchers];
 		void* m_pWatcherSlotsRawMemory[s_uNbWatchers];
 
@@ -395,8 +439,12 @@ namespace VariableWatcher
 	{
 		Watcher(const std::string& sName) : WatcherInterface(sName)
 		{
+#ifdef ENABLE_THREAD_SAFETY
+			WatchersManager::LockGuard oLock;
+#endif
+			WatchersManager& oManager = WatchersManager::GetInstance();
 			using std::to_string;
-			m_pVal = WatchersManager::GetInstance().AddWatchedVariable<T>(this);
+			m_pVal = oManager.AddWatchedVariable<T>(this);
 
 			if(m_pVal != nullptr)
 			{
@@ -410,6 +458,10 @@ namespace VariableWatcher
 		}
 		Watcher(const std::string& sName, const T& oCreateVal) : WatcherInterface(sName)
 		{
+#ifdef ENABLE_THREAD_SAFETY
+			WatchersManager::LockGuard oLock;
+#endif
+
 			using std::to_string;
 			m_pVal = WatchersManager::GetInstance().AddWatchedVariable<T>(this);
 
@@ -426,6 +478,10 @@ namespace VariableWatcher
 		}
 		~Watcher()
 		{
+			
+#ifdef ENABLE_THREAD_SAFETY
+			WatchersManager::LockGuard oLock;
+#endif
 			WatchersManager::GetInstance().Log("Remove watched var " + m_sName);
 #ifdef PRINT_CALLSTACK
 			WatchersManager::GetInstance().Log("Callstack : \n" + WatchersManager::GetInstance().GetCallstack(1U));
