@@ -1,10 +1,11 @@
 # VariableWatcher
 C++ tracker for variable values
 
-This repo contains two source files :
+This repo contains three source files :
 <ul>
 <li>VariableWatcher.hpp which is the only file you need to include to include in your project to use the watchers.</li>
 <li>Example.cpp which contains examples showing how the watcher can be used. </li>
+<li>ExampleMultithread.cpp which contains examples showing how the watcher can be used in a multithreaded context. </li>
 </ul>
 
 <h2>Goals</h2>
