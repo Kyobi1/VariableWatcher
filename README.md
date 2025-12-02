@@ -11,8 +11,8 @@ This repo contains two source files :
 This variable watcher system intends to allow you to track variable values during their lifetime. It was thought to be used mainly with primary types and small data objects and it's main purpose is for debugging a variable in a context where it's difficult to use a debugger.
 
 <h2>Limitations</h2>
-This system in currently working only on windows since it's using windows API for virtual allocations.
-Please note that it is not currently thread safe and that if you want to track a structure bigger than your system page size, you will have a bad_alloc exception.
+This system is currently working only on windows since it's using windows API for virtual allocations.
+Please note that if you want to track a structure bigger than your system page size, you will have a bad_alloc exception if the exceptions are enabled, or just an error log if not.
 Since this system takes a lot of memory, I choosed to limit the number of simultaneous living watchers to the numbers specified in WatchersManager::s_uNbWatchers. Feel free to change it but keep in mind that you will use a lot more memory than needed for your tracked variables.
 Using breakpoints and moving step by step in the code when a watched variable is used may causes undefined behavior on it because the debugger may catch events used by the system, so you should limit the use of breakpoints when using this.
 
@@ -73,6 +73,9 @@ VariableWatcher::WatchersManager::GetInstance().SetCustomLogFunction(MyCustomLog
 Please note that your function must have the same signature as the one given in example (returns void and take a const std::string& in parameter).
 <br />
 If you don't want the callstack of the changes in your logs, you can remove the PRINT_CALLSTACK symbol.
+
+<h3>Multithreading</h3>
+You can use the watchers in a multithreading context, just ensure that the ENABLE_THREAD_SAFETY symbol is enabled. It is advisable to remove it if you're in a single thread environment because you will pay the cost of the synchronization if not. Note that if you have data races issues on read/write access in your program, put watchers on these data will prevent them by synchronizing memory access.
 
 <h2>How does it work</h2>
 This system allocate a whole memory page for your variable and adds a page guard protection on it. When anyone wants to access this memory area, it is notified by a custom handler which allows the system to log any new value stored in the variable.
