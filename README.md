@@ -79,4 +79,4 @@ If you don't want the callstack of the changes in your logs, you can remove the 
 You can use the watchers in a multithreading context, just ensure that the ENABLE_THREAD_SAFETY symbol is enabled. It is advisable to remove it if you're in a single thread environment because you will pay the cost of the synchronization if not. Note that if you have data races issues on read/write access in your program, put watchers on these data will prevent them by synchronizing memory access.
 
 <h2>How does it work</h2>
-This system allocate a whole memory page for your variable and adds a page guard protection on it. When anyone wants to access this memory area, it is notified by a custom handler which allows the system to log any new value stored in the variable.
+This system allocates a whole memory page for your variable and adds a page guard protection on it. When anyone wants to access this memory area, it is notified by a custom handler which allows the system to log any new value stored in the variable.
